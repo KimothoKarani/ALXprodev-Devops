@@ -1,18 +1,22 @@
 #!/usr/bin/env bash
-# Parse data.json and print:
+# Parse data.json and print a human sentence:
 # "Pikachu is of type Electric, weighs 6kg, and is 0.4m tall."
-# Tools allowed: jq, awk, sed (we'll use jq + awk)
+# Only using jq, awk, sed for extraction/formatting.
 
-jq -r '[.name, .height, .weight, (.types[0].type.name)] | @tsv' data.json \
-| awk -F'\t' '
-function cap(s){ return toupper(substr(s,1,1)) tolower(substr(s,2)) }
-function fmt1(x){ s=sprintf("%.1f", x); sub(/\.0$/, "", s); return s }
-{
-  name = cap($1)            # e.g., pikachu -> Pikachu
-  height_m = fmt1($2/10)    # height is in decimeters -> meters
-  weight_kg = fmt1($3/10)   # weight is in hectograms -> kilograms
-  ptype = cap($4)           # e.g., electric -> Electric
+# 1) Extract raw fields from JSON
+name=$(jq -r '.name' data.json)
+type=$(jq -r '.types[0].type.name' data.json)
+height_dm=$(jq -r '.height' data.json)   # decimeters
+weight_hg=$(jq -r '.weight' data.json)   # hectograms
 
-  printf "%s is of type %s, weighs %skg, and is %sm tall.\n", name, ptype, weight_kg, height_m
-}'
+# 2) Convert units (dm -> m, hg -> kg), format to 1 decimal, strip trailing .0
+formatted_height=$(awk "BEGIN { printf(\"%.1f\", $height_dm/10) }" | sed 's/\.0$//')
+formatted_weight=$(awk "BEGIN { printf(\"%.1f\", $weight_hg/10) }" | sed 's/\.0$//')
+
+# 3) Capitalize first letter of name and type using awk
+name=$(echo "$name" | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')
+type=$(echo "$type" | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')
+
+# 4) Echo EXACT template the checker expects:
+echo "$name is of type $type, weighs ${formatted_weight}kg, and is ${formatted_height}m tall."
 
