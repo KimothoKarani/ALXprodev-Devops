@@ -46,3 +46,4 @@ for name in "${POKEMON[@]}"; do
   sleep 1
 done
 
+
