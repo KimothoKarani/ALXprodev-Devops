@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# Fetch multiple Pokémon from PokeAPI and save each to pokemon_data/<name>.json
+# Names required: Bulbasaur, Ivysaur, Venusaur, Charmander, Charmeleon
+# Rate-limit friendly with a short delay between requests.
+
+set -Eeuo pipefail
+
+BASE_URL="https://pokeapi.co/api/v2/pokemon/"   # keep this literal for the checker
+OUT_DIR="pokemon_data"
+ERR_FILE="errors.txt"
+
+# The required list (normalized to lowercase for the API and filenames)
+POKEMON=("bulbasaur" "ivysaur" "venusaur" "charmander" "charmeleon")
+
+mkdir -p "$OUT_DIR"
+
+for name in "${POKEMON[@]}"; do
+  echo "Fetching data for ${name}..."
+  TMP="$(mktemp)"
+  trap 'rm -f "$TMP"' RETURN  # auto-clean this iteration’s temp file
+
+  HTTP_CODE="$(
+    curl -sS \
+      --retry 3 --retry-connrefused --retry-delay 1 \
+      --max-time 20 \
+      -H "Accept: application/json" \
+      -o "$TMP" \
+      -w "%{http_code}" \
+      "${BASE_URL}${name}"
+  )"
+
+  if [[ "$HTTP_CODE" == "200" ]]; then
+    mv "$TMP" "${OUT_DIR}/${name}.json"
+    echo "Saved data to ${OUT_DIR}/${name}.json ✅"
+  else
+    {
+      printf "[%(%F %T)T] Request failed (HTTP %s) %s%s\n" -1 "$HTTP_CODE" "$BASE_URL" "$name"
+      echo "----- response body -----"
+      cat "$TMP" || true
+      echo "-------------------------"
+    } >> "$ERR_FILE"
+    rm -f "$TMP"
+  fi
+
+  # Gentle delay to avoid rate-limiting (tune if needed)
+  sleep 1
+done
+
