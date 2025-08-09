@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# Summarize multiple Pokémon JSON files into a CSV and print averages.
+# Input: pokemon_data/*.json (from Task 2)
+# Output: pokemon_report.csv + printed averages
+
+set -Eeuo pipefail
+
+IN_DIR="pokemon_data"
+OUT_CSV="pokemon_report.csv"
+
+# sanity checks
+shopt -s nullglob
+files=( "$IN_DIR"/*.json )
+if (( ${#files[@]} == 0 )); then
+  echo "No JSON files found in $IN_DIR. Run the batch fetch first."
+  exit 1
+fi
+
+# write header
+echo "Name,Height (m),Weight (kg)" > "$OUT_CSV"
+
+# extract (name, height(dm), weight(hg)) → format → sort by Name → append to CSV
+# - height in meters = height_dm / 10
+# - weight in kg     = weight_hg / 10
+# - capitalize first letter of name/type
+for f in "${files[@]}"; do
+  jq -r '[.name, .height, .weight] | @tsv' "$f"
+done \
+| awk -F'\t' '
+function cap(s){ return toupper(substr(s,1,1)) tolower(substr(s,2)) }
+function fmt1(x){ s=sprintf("%.1f", x); sub(/\.0$/, "", s); return s }
+{
+  name = cap($1)
+  height_m = fmt1($2/10)
+  weight_kg = fmt1($3/10)
+  printf "%s,%s,%s\n", name, height_m, weight_kg
+}' \
+| sort -t',' -k1,1 >> "$OUT_CSV"
+
+echo "CSV Report generated at: $OUT_CSV"
+echo
+
+# show the CSV like the sample output
+cat "$OUT_CSV"
+echo
+
+# compute and print averages with awk
+awk -F',' 'NR>1 {h+=$2; w+=$3; n++} END {
+  if (n>0) {
+    printf "\nAverage Height: %.2f m\nAverage Weight: %.2f kg\n", h/n, w/n
+  } else {
+    print "No data rows found."
+  }
+}' "$OUT_CSV"
+
