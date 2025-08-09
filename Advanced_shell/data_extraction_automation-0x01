@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Parse data.json and print:
+# "Pikachu is of type Electric, weighs 6kg, and is 0.4m tall."
+# Tools allowed: jq, awk, sed (we'll use jq + awk)
+
+jq -r '[.name, .height, .weight, (.types[0].type.name)] | @tsv' data.json \
+| awk -F'\t' '
+function cap(s){ return toupper(substr(s,1,1)) tolower(substr(s,2)) }
+function fmt1(x){ s=sprintf("%.1f", x); sub(/\.0$/, "", s); return s }
+{
+  name = cap($1)            # e.g., pikachu -> Pikachu
+  height_m = fmt1($2/10)    # height is in decimeters -> meters
+  weight_kg = fmt1($3/10)   # weight is in hectograms -> kilograms
+  ptype = cap($4)           # e.g., electric -> Electric
+
+  printf "%s is of type %s, weighs %skg, and is %sm tall.\n", name, ptype, weight_kg, height_m
+}'
+
