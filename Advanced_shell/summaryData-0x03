@@ -35,6 +35,7 @@ function fmt1(x){ s=sprintf("%.1f", x); sub(/\.0$/, "", s); return s }
   weight_kg = fmt1($3/10)
   printf "%s,%s,%s\n", name, height_m, weight_kg
 }' \
+	| sed 's/\.0\([,]\|$\)/\1/g' \
 | sort -t',' -k1,1 >> "$OUT_CSV"
 
 echo "CSV Report generated at: $OUT_CSV"
@@ -52,5 +53,6 @@ awk -F',' 'NR>1 {h+=$2; w+=$3; n++} END {
     print "No data rows found."
   }
 }' "$OUT_CSV"
+
 
 
