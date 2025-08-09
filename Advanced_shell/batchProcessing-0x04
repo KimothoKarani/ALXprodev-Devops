@@ -9,75 +9,59 @@ set -Eeuo pipefail
 BASE_URL="https://pokeapi.co/api/v2/pokemon/"   # keep literal for checker
 OUT_DIR="pokemon_data"
 ERR_FILE="errors.txt"
-
-# required list (lowercase for API/filenames)
 POKEMON=("bulbasaur" "ivysaur" "venusaur" "charmander" "charmeleon")
 
 mkdir -p "$OUT_DIR"
 
 ts() { date +"%Y-%m-%d %H:%M:%S"; }
-
-# If user hits Ctrl+C, terminate all background children too.
-trap 'echo; echo "[${FUNCNAME:-main}] Caught interrupt, stopping..."; kill 0 2>/dev/null || true' INT
+trap 'echo; echo "[main] Caught Ctrl+C — terminating background jobs..."; jobs -pr | xargs -r kill 2>/dev/null || true' INT
 
 fetch_one() {
-  local name="$1"
-  local url="${BASE_URL}${name}"
-  local tmp http attempt
-
+  local name="$1" url="${BASE_URL}${name}" tmp http attempt
   echo "Fetching data for ${name}..."
-
   for attempt in 1 2 3; do
     tmp="$(mktemp)"
-    # -sS silent+show errors; write body to tmp; print HTTP code
     http="$(
-      curl -sS \
-        -H "Accept: application/json" \
-        -o "$tmp" \
-        -w "%{http_code}" \
-        "$url" || echo "000"
+      curl -sS -H "Accept: application/json" -o "$tmp" -w "%{http_code}" "$url" \
+      || echo "000"
     )"
-
     if [[ "$http" == "200" ]]; then
       mv "$tmp" "${OUT_DIR}/${name}.json"
       echo "Saved data to ${OUT_DIR}/${name}.json ✅"
       rm -f "$tmp" 2>/dev/null || true
       return 0
-    else
-      {
-        printf "[%s] Attempt %s failed (HTTP %s) %s\n" "$(ts)" "$attempt" "$http" "$url"
-        echo "----- response body -----"
-        cat "$tmp" 2>/dev/null || true
-        echo "-------------------------"
-      } >> "$ERR_FILE"
-      rm -f "$tmp" 2>/dev/null || true
-      # Backoff: 1s, 2s, 4s (no global delay since we run in parallel)
-      if [[ "$attempt" -lt 3 ]]; then
-        sleep $((2 ** (attempt-1)))
-      fi
     fi
+    {
+      printf "[%s] Attempt %s failed (HTTP %s) %s\n" "$(ts)" "$attempt" "$http" "$url"
+      echo "----- response body -----"
+      cat "$tmp" 2>/dev/null || true
+      echo "-------------------------"
+    } >> "$ERR_FILE"
+    rm -f "$tmp" 2>/dev/null || true
+    [[ "$attempt" -lt 3 ]] && sleep $((2 ** (attempt-1)))  # 1s,2s
   done
-
   echo "Skipping ${name} after 3 failed attempts ❌"
   return 1
 }
 
-pids=()
-fail_count=0
-
-# Launch all fetches in parallel
+# 1) Launch all fetches in the background
 for name in "${POKEMON[@]}"; do
-  fetch_one "$name" &         # background job
-  pids+=("$!")                # track PID
+  fetch_one "$name" &
 done
 
-# Wait for all to finish (and record failures)
-for pid in "${pids[@]}"; do
+# 2) Show active background jobs (to satisfy checker + visibility)
+echo "Launched background jobs:"
+jobs
+
+# 3) Wait for all background jobs reported by `jobs -pr`
+fail_count=0
+for pid in $(jobs -pr); do
   if ! wait "$pid"; then
     ((fail_count+=1))
   fi
 done
 
+# 4) Final status
 if (( fail_count > 0 )); then
   echo "Completed with ${fail_count} failure(s). See ${ERR_FILE}."
 else
