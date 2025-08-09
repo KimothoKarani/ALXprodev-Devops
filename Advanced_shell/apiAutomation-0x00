@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# Purpose: Fetch Pikachu from PokeAPI, save JSON to data.json, log any errors to errors.txt
+
+set -Eeuo pipefail
+# -E: better ERR trap behavior
+# -e: exit on any command failure
+# -u: error on unset variables
+# -o pipefail: fail a pipeline if any command fails
+
+API_BASE="https://pokeapi.co/api/v2/pokemon"
+POKEMON_NAME="pikachu"          # fixed to Pikachu for this task
+OUT_FILE="data.json"
+ERR_FILE="errors.txt"
+
+# timestamp helper for logs
+timestamp() { date +"%Y-%m-%d %H:%M:%S"; }
+
+# temp file to hold response body before we know if it succeeded
+TMP="$(mktemp)"
+
+# always clean up the temp file
+cleanup() { rm -f "$TMP"; }
+trap cleanup EXIT
+trap 'printf "[%s] ERROR: command failed at line %s\n" "$(timestamp)" "$LINENO" >> "$ERR_FILE"' ERR
+
+# do the request:
+# -sS  : silent but still show errors
+# --retry / --retry-connrefused : be resilient to transient failures
+# --max-time: don't hang forever
+# -H   : accept JSON
+# -o   : write response body to $TMP
+# -w   : write HTTP status code to stdout so we can capture it
+HTTP_CODE="$(
+  curl -sS \
+       --retry 3 --retry-connrefused --retry-delay 1 \
+       --max-time 20 \
+       -H "Accept: application/json" \
+       -o "$TMP" \
+       -w "%{http_code}" \
+       "$API_BASE/$POKEMON_NAME"
+)"
+
+# decide success vs failure
+if [[ "$HTTP_CODE" == "200" ]]; then
+  mv "$TMP" "$OUT_FILE"
+  echo "Saved to $OUT_FILE"
+else
+  {
+    printf "[%s] Request failed (HTTP %s) for %s/%s\n" "$(timestamp)" "$HTTP_CODE" "$API_BASE" "$POKEMON_NAME"
+    echo "----- response body -----"
+    cat "$TMP"
+    echo "-------------------------"
+  } >> "$ERR_FILE"
+  exit 1
+fi
+
